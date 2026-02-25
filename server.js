@@ -23,6 +23,9 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, "public")));
+app.get("/healthz", (req, res) => {
+  res.status(200).send("ok");
+});
 
 const rooms = new Map();
 
