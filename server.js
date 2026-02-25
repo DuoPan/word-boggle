@@ -9,8 +9,7 @@ const { getWordsList } = require("most-common-words-by-language");
 
 const PORT = process.env.PORT || 3000;
 const ROUND_SECONDS = 120;
-const MIN_PLAYERS = 2;
-const MAX_PLAYERS = 4;
+const MIN_PLAYERS = 1;
 const BOARD_SIZE = 4;
 const MIN_WORD_LENGTH = 3;
 const MAX_WORD_LENGTH = 8;
@@ -187,7 +186,7 @@ function summarizeRoom(room) {
   return {
     code: room.code,
     status: room.status,
-    maxPlayers: MAX_PLAYERS,
+    maxPlayers: null,
     players,
     round: room.round
       ? {
@@ -386,10 +385,6 @@ io.on("connection", (socket) => {
       socket.emit("op_error", "Room not found.");
       return;
     }
-    if (room.players.size >= MAX_PLAYERS) {
-      socket.emit("op_error", "Room is full.");
-      return;
-    }
     if (room.status === "ACTIVE_ROUND") {
       socket.emit("op_error", "Round in progress. Try again later.");
       return;
@@ -455,7 +450,7 @@ io.on("connection", (socket) => {
       return;
     }
     if (room.players.size < MIN_PLAYERS) {
-      socket.emit("op_error", "Need at least 2 players.");
+      socket.emit("op_error", "Need at least 1 player.");
       return;
     }
     if (room.status === "ACTIVE_ROUND") return;

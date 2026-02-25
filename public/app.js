@@ -112,7 +112,7 @@ function render() {
       .map((p) => `<div class="playerCard">${escapeHtml(p.name)} ${p.isHost ? "(Host)" : ""} ${p.connected ? "" : "(Offline)"}</div>`)
       .join("");
     const me = myPlayer();
-    const canStart = Boolean(me?.isHost) && state.room.players.length >= 2;
+    const canStart = Boolean(me?.isHost) && state.room.players.length >= 1;
     el.startBtn.disabled = !canStart;
     return;
   }
