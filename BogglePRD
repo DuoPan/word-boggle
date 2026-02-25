@@ -1,0 +1,789 @@
+# Word Bench: Multiplayer Boggle Game
+## Product Requirements Document (PRD)
+
+**Version:** 1.0  
+**Last Updated:** February 25, 2026  
+**Created for:** Duo Pan  
+**Status:** Ready for Implementation  
+
+---
+
+## 1. Executive Summary
+
+A multiplayer online Boggle-style word game where 2-4 players compete simultaneously on a shared letter board to find valid English words within a time limit (90 seconds per round). Final rankings are based on unique word submissions and Boggle scoring rules. The game supports single-round play with transparent scoring, answer key revelation, and live word count tracking.
+
+**Core Experience:**
+- Real-time multiplayer word discovery
+- Fair competition via deduplication (only unique words score)
+- Transparent scoring with Boggle standard point values
+- Answer key revelation post-game
+- Live progress tracking during gameplay
+
+---
+
+## 2. Product Scope
+
+### In Scope (MVP)
+- Room creation and player joining
+- Single-round Boggle gameplay (competitive, no cooperation mode)
+- Real-time word validation and scoring
+- Single-round leaderboard and rankings
+- Answer key display after round ends
+- Live word count progress indicator during round
+- Responsive UI matching Word Bench design system
+
+### Out of Scope (Future Phases)
+- Multi-round cumulative leaderboards
+- Elo rating system
+- Replay/archive functionality
+- Mobile app (web-only for MVP)
+- Chat or voice integration
+- Difficulty settings or custom board sizes
+- Cross-room tournaments
+- Analytics dashboard
+
+---
+
+## 3. User Personas
+
+### Primary User: Casual Multiplayer Gamer
+- **Name:** Alex  
+- **Background:** Software developer or office worker wanting a quick 2-3 min break game with friends.  
+- **Goals:** Win a round, see how many words they found vs. peers, have fun.  
+- **Pain Points:** Wants fair scoring, clear rules, instant feedback.
+
+### Secondary User: Game Host/Room Creator
+- **Name:** Jordan  
+- **Background:** Organizes group games or team-building activities.  
+- **Goals:** Set up room easily, manage game flow, see all player progress.  
+- **Pain Points:** Needs control (pause/end round), clarity on what's happening.
+
+---
+
+## 4. Game Rules & Mechanics
+
+### 4.1 Board Setup
+- **Board Dimensions:** 4×4 grid of randomly generated English letters (lowercase).
+- **Board Display:** Centered in main game area, each cell is a clickable/interactive square showing one letter.
+- **Board Generation:** Random, uniform distribution. Optionally weight by letter frequency (E, A, R, etc. more common).
+- **Board Reuse:** New board for each round; boards do not persist between rounds.
+
+### 4.2 Word Validity
+
+**A word is valid if ALL of the following are true:**
+
+1. **Length:** 3–26 characters (practical ceiling: 8+ characters are rare on a 4×4 board).
+2. **Dictionary:** Word exists in the English dictionary (use ENABLE word list or SOWPODS for British variants; configurable backend).
+3. **Path on Board:**  
+   - All letters of the word appear on the board as a continuous path.
+   - Path rules:  
+     - Can move horizontally, vertically, or diagonally (8 directions).
+     - Each cell can be used **at most once per word** (no reusing the same cell).
+     - Path must be contiguous (each letter touches the next).
+   - Example on a 4×4:
+     ```
+     [C] [A] [T] [S]
+     [D] [O] [G] [I]
+     [E] [F] [R] [N]
+     [B] [U] [M] [P]
+     ```
+     - Valid: C→A→T→S (top row, left to right)
+     - Valid: C→A→O→T (diagonal zigzag)
+     - Invalid: C→O→O→T (reuses O)
+
+4. **Not a Proper Noun:** Common names, brands, place names are rejected.
+5. **No Abbreviations:** "USA", "LOL", etc. rejected.
+6. **Language:** English only (case-insensitive input, convert to lowercase for matching).
+
+### 4.3 Scoring System
+
+Points are awarded based on **unique word submissions only** (deduplication phase):
+
+| Word Length | Points |
+|------------|--------|
+| 3–4 chars | 1 point |
+| 5 chars | 2 points |
+| 6 chars | 3 points |
+| 7 chars | 5 points |
+| 8+ chars | 11 points |
+
+**Deduplication Logic:**  
+1. After round ends, collect all words submitted by all players.
+2. Count frequency of each word.
+3. Any word submitted by 2+ players scores **0 points for everyone**.
+4. Words submitted by exactly 1 player score normally (per table above).
+5. Example:
+   - Player 1 submits: CAT (1), DOG (1), QUICK (2) → Total: 4 pts (all unique)
+   - Player 2 submits: CAT (1), BIRD (1), FISH (1) → Total: 2 pts (CAT deduplicated, only BIRD+FISH count)
+   - Player 3 submits: TREE (1) → Total: 1 pt
+
+### 4.4 Round Flow
+
+1. **Pre-Round (Lobby State)**  
+   - Room host or all players press "START ROUND" button.
+   - System verifies 2–4 players are in the room.
+   
+2. **Round Start**  
+   - Generate random 4×4 letter board.
+   - Display board in center area.
+   - Start 90-second countdown timer (visible at top of screen).
+   - Enable input field for word submissions.
+   - Emit "round started" event to all clients (WebSocket/real-time sync).
+
+3. **Active Round (90 seconds)**  
+   - All players simultaneously view the same board.
+   - Players type words into input field and press "GO" or Enter.
+   - Each submission triggers:
+     - **Client-side:** Optionally show visual feedback (path highlight on board for 1 sec, or just add to player's list).
+     - **Server-side:**  
+       - Validate word (dictionary check, path check).
+       - If valid: Add to player's word list, increment player's score, broadcast updated score to all clients.
+       - If invalid: Return error message (e.g., "INVALID: xyz not on board" or "INVALID: not a real word").
+       - Broadcast global word count: `"Total unique words found so far: 12 / 42 possible"`.
+   - Players see their submitted words in real-time on their player card (right panel).
+   - Timer counts down: display as MM:SS (e.g., 01:30, 00:45, 00:05).
+
+4. **Round End (Timer = 0:00 or Host Presses "END ROUND")**  
+   - Immediately lock all input fields.
+   - Fetch complete answer key (all possible valid words on the board).
+   - Perform deduplication and final scoring calculation.
+   - Display results screen (see Section 5.2).
+
+### 4.5 Time Limits
+
+- **Round Duration:** 90 seconds (fixed for MVP).
+- **Time Warning:** Optional UI color change when ≤ 15 seconds remain (e.g., timer turns red).
+- **End-of-Round Calculation:** ≤ 2 seconds (pre-computed answer key helps here).
+
+---
+
+## 5. User Interface & Flows
+
+### 5.1 Pre-Game UI (Lobby Screen)
+
+**Reference:** Word Bench main screen (your screenshot #2)
+
+**Layout:**
+```
+═══════════════════════════════════
+    Welcome to Word Bench
+═══════════════════════════════════
+
+              [CREATE]  [JOIN]
+
+───────────────────────────────────
+  "I eat pies for breakfast."
+            - Jarry
+───────────────────────────────────
+```
+
+**Modifications for Boggle mode:**
+- Ensure "CREATE" → leads to room creation flow.
+- Ensure "JOIN" → leads to room joining (enter room code).
+- Subtitle/flavor text can remain or be updated to "Play Boggle. Find words. Win."
+
+### 5.2 Room Lobby (Pre-Round)
+
+**Layout:**
+```
+┌─────────────────────────────────────────────┐
+│  Room: ABCD1234                [COPY]       │
+├─────────────────────────────────────────────┤
+│                                             │
+│           PLAYERS (2/4)                    │
+│  ┌─────────────────────────────────────┐   │
+│  │ Duo        (Host)      [READY]      │   │
+│  │ Jerry      (Waiting)                │   │
+│  └─────────────────────────────────────┘   │
+│                                             │
+│  Waiting for players...                    │
+│                                             │
+│  [START ROUND] (if host & ≥2 players)     │
+│  [LEAVE ROOM]                              │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+**Key Elements:**
+- **Room Code Display & Copy Button:** Allows easy sharing.
+- **Player List:** Shows player names, "Host" badge for room creator, optional status (Ready/Waiting).
+- **START ROUND Button:**
+  - Enabled only if host AND 2–4 players in room.
+  - Triggers round start.
+- **LEAVE ROOM Button:** Exits room (if host, room closes; if regular player, leaves gracefully).
+
+### 5.3 Active Game Screen (During Round)
+
+**Layout Reference:** Your screenshot #3 (game board with letters, input, players panel)
+
+**Detailed Breakdown:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Room: ABCD1234                           Time: 01:23  [GIVE UP] │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│                     [4×4 Letter Board]                        │
+│                                                               │
+│  Example:                                                     │
+│  ┌─────┬─────┬─────┬─────┐                                   │
+│  │  M  │  F  │  N  │  R  │                                   │
+│  ├─────┼─────┼─────┼─────┤                                   │
+│  │  O  │  I  │  C  │  O  │                                   │
+│  ├─────┼─────┼─────┼─────┤                                   │
+│  │  D  │  L  │  E  │  N  │                                   │
+│  ├─────┼─────┼─────┼─────┤                                   │
+│  │  G  │  E  │  S  │  S  │                                   │
+│  └─────┴─────┴─────┴─────┘                                   │
+│                                                               │
+│                    Words Found: 12/42 (29%)                  │
+│                                                               │
+│  ┌─────────────────────────────────────┐                     │
+│  │ FIND, MICE, FINE, DINE, LINES...    │                    │
+│  │                                       │                    │
+│  │ [Enter a Word...]              [GO] │                    │
+│  └─────────────────────────────────────┘                     │
+│                                                               │
+└─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  PLAYERS                                                      │
+│  ┌─────────────────────────────────┐                         │
+│  │ 1. Duo           12 pts (4 words)│                         │
+│  │    - FIND (2)                    │                         │
+│  │    - MICE (2)                    │                         │
+│  │    - FINE (2)                    │                         │
+│  │    - DINE (2)                    │                         │
+│  ├─────────────────────────────────┤                         │
+│  │ 2. Jerry         8 pts (2 words) │                         │
+│  │    - MICE (2)                    │                         │
+│  │    - LINES (5)                   │                         │
+│  ├─────────────────────────────────┤                         │
+│  │ 3. [Empty Seat]                 │                         │
+│  └─────────────────────────────────┘                         │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Elements:**
+
+1. **Header Row:**
+   - **Room Code** (left): "Room: ABCD1234"
+   - **Timer** (center-right): "Time: 01:23" (updates every second, MM:SS format)
+   - **Timer Color:** Green (normal) → Yellow (≤15s) → Red (≤5s)
+   - **GIVE UP Button** (right): Ends round immediately (optional, for host or all players)
+
+2. **Letter Board (Center):**
+   - 4×4 grid of cells.
+   - Each cell: light blue background, dark text (letter).
+   - Optional: On hover/click, show potential paths (visual aid, not required for MVP).
+   - No interactive clicking required (word entry is via text input).
+
+3. **Word Count Progress:**
+   - Display: `"Words Found: 12/42 (29%)"`
+   - Updates in real-time as players submit valid words.
+   - 12 = unique words found by all players so far.
+   - 42 = pre-computed total possible words (from answer key).
+   - Percentage auto-calculated.
+
+4. **Input Area (Below Board):**
+   - Text input field: Placeholder `"Enter a Word..."`
+   - Submit Button: "GO" (or detect Enter key)
+   - Disabled during round end / before round start.
+   - On submit:
+     - Clear input field (on client, immediate UX feedback).
+     - Send to server for validation.
+     - If valid: Show green checkmark briefly, add to player's word list.
+     - If invalid: Show red error message (e.g., "INVALID: word not found on board").
+
+5. **Players Panel (Right Side):**
+   - **Live Leaderboard:** Sorted by current score (highest first).
+   - **Per-Player Card:**
+     - Rank number (1, 2, 3)
+     - Player name
+     - Current score (total points)
+     - Word count in parentheses
+     - (Optional) Expand arrow to show individual words submitted
+   - If expanded, show up to 8–10 words (scrollable if more).
+   - No player can see other players' full word lists until round ends (privacy).
+
+### 5.4 Round End / Results Screen
+
+**Triggered When:** Timer reaches 0:00 or host presses "END ROUND"
+
+**Layout:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│              ROUND COMPLETE - FINAL RANKINGS               │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  🏆 1st Place: Duo          25 pts (7 words)                │
+│  🥈 2nd Place: Jerry        18 pts (6 words)                │
+│  🥉 3rd Place: Alex         12 pts (4 words)                │
+│                                                               │
+├─────────────────────────────────────────────────────────────┤
+│                    ALL POSSIBLE WORDS (42 total)            │
+│                                                              │
+│  Submitted by Players:                                      │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │ 8+ Letters (2 words): MINORITY, FEMININE             │  │
+│  │ 7 Letters (4 words): FIND, MICE, FINE, DINE          │  │
+│  │ 6 Letters (8 words): ...                              │  │
+│  │ 5 Letters (12 words): ...                             │  │
+│  │ 3–4 Letters (16 words): ...                           │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Missed Words:                                              │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │ OILS, COIL, NOISE, OIL, INE, ...                     │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                              │
+│                                                              │
+│  [NEW ROUND]  [LEAVE ROOM]  [COPY ROOM CODE]              │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Elements:**
+
+1. **Title:** "ROUND COMPLETE - FINAL RANKINGS"
+2. **Final Leaderboard:**
+   - Top 3 (or all if < 3 players) with medals/emojis (🏆 🥈 🥉).
+   - Format: `[Rank]. [Name] [Score] pts ([Word Count] words)`
+3. **Answer Key Section (Expandable Tabs):**
+   - **Tab 1: "Submitted by Players"** (default open)
+     - All valid words submitted by at least 1 player, grouped by length.
+     - Show which player(s) submitted each (optional detail).
+     - Highlight unique words (submitted by 1 player only) vs. duplicates (deduplicated).
+   - **Tab 2: "Missed Words"** (optional, shows what players didn't find)
+     - All valid words NOT submitted by anyone.
+     - Grouped by length.
+   - Each tab has a word count display (e.g., "42 total possible words").
+
+4. **Action Buttons:**
+   - **[NEW ROUND]:** Host or anyone can press to restart. Generates new board, resets scores, starts new round.
+   - **[LEAVE ROOM]:** Exit to lobby or main menu.
+   - **[COPY ROOM CODE]:** Quick copy room code to clipboard (for easy re-invite).
+
+---
+
+## 6. Data Model & Backend Architecture
+
+### 6.1 Core Entities
+
+#### Room
+```
+{
+  room_id: string (UUID),
+  room_code: string (6-char alphanumeric, e.g., "ABCD12"),
+  created_at: timestamp,
+  updated_at: timestamp,
+  host_id: string (player_id of room creator),
+  status: enum ["LOBBY", "ACTIVE_ROUND", "ROUND_END"],
+  players: Player[] (2–4 players),
+  current_round: Round,
+  max_players: integer (4)
+}
+```
+
+#### Player
+```
+{
+  player_id: string (UUID),
+  room_id: string (foreign key),
+  name: string (1–20 chars, set at room join),
+  created_at: timestamp,
+  is_host: boolean,
+  websocket_id: string (for real-time sync, refreshed per connection)
+}
+```
+
+#### Round
+```
+{
+  round_id: string (UUID),
+  room_id: string (foreign key),
+  board: Board (see below),
+  start_time: timestamp,
+  end_time: timestamp (null until round ends),
+  duration_seconds: integer (90),
+  status: enum ["PENDING", "ACTIVE", "COMPLETE"],
+  player_submissions: PlayerSubmission[] (all word submissions in this round),
+  final_rankings: Ranking[] (calculated when round ends)
+}
+```
+
+#### Board
+```
+{
+  board_id: string (UUID),
+  round_id: string (foreign key),
+  grid: string[4][4] (array of letters, lowercase),
+  generated_at: timestamp,
+  possible_words: string[] (pre-computed answer key)
+}
+```
+
+#### PlayerSubmission
+```
+{
+  submission_id: string (UUID),
+  round_id: string (foreign key),
+  player_id: string (foreign key),
+  word: string (lowercase),
+  submitted_at: timestamp,
+  is_valid: boolean,
+  validation_error: string (null if valid, e.g., "not found on board"),
+  points: integer (0 if invalid or deduplicated)
+}
+```
+
+#### Ranking
+```
+{
+  ranking_id: string (UUID),
+  round_id: string (foreign key),
+  player_id: string (foreign key),
+  rank: integer (1, 2, 3, ...),
+  final_score: integer,
+  unique_words_count: integer,
+  all_words: string[] (all words submitted by this player, including deduplicated)
+}
+```
+
+### 6.2 Real-Time Synchronization
+
+**Protocol:** WebSocket (or Server-Sent Events as fallback)
+
+**Events:**
+
+| Event | Direction | Trigger | Payload |
+|-------|-----------|---------|---------|
+| `player_joined` | Server → All Clients | Player joins room | `{ player_id, name, room_id }` |
+| `player_left` | Server → All Clients | Player leaves room | `{ player_id, room_id }` |
+| `round_started` | Server → All Clients | Host clicks START ROUND | `{ board: string[4][4], duration_seconds: 90, start_time: timestamp }` |
+| `word_submitted` | Client → Server | Player presses GO | `{ round_id, player_id, word: string }` |
+| `word_validated` | Server → All Clients | Word validation complete | `{ player_id, word: string, is_valid: boolean, points: integer, error: string }` |
+| `score_updated` | Server → All Clients | Player score changes | `{ player_id, current_score: integer, word_count: integer }` |
+| `progress_updated` | Server → All Clients | Global word count updates | `{ unique_words_found: integer, total_possible: integer }` |
+| `timer_tick` | Server → All Clients | Every 1 second (optional, for synced timer) | `{ seconds_remaining: integer }` |
+| `round_ended` | Server → All Clients | Timer reaches 0 or host ends round | `{ rankings: Ranking[], answer_key: string[] }` |
+
+### 6.3 API Endpoints (RESTful + WebSocket)
+
+#### REST Endpoints
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/api/rooms` | Create a new room | None |
+| GET | `/api/rooms/:room_code` | Get room details (lobby view) | None |
+| POST | `/api/rooms/:room_code/join` | Join an existing room | None |
+| POST | `/api/rooms/:room_code/leave` | Leave a room | Session token |
+| POST | `/api/rooms/:room_code/start` | Start a round (host only) | Session token |
+| POST | `/api/rooms/:room_code/end` | Force end round (host only) | Session token |
+| POST | `/api/submissions` | Submit a word (during active round) | Session token |
+| GET | `/api/rounds/:round_id` | Get round details & final results | None |
+| GET | `/api/boards/:board_id/words` | Get answer key for a board (after round ends) | None |
+
+#### WebSocket Endpoints
+
+| Event (Client → Server) | Event (Server → Client) | Purpose |
+|-------------------------|-------------------------|---------|
+| `connect` | Connection established | Handshake |
+| `join_room` + `{ room_code, player_name }` | `room_state` | Client joins; server broadcasts room state to all |
+| `submit_word` + `{ word }` | `word_result` | Client submits; server validates & broadcasts result |
+| (implicit timer tick) | `timer_update` + `{ seconds_remaining }` | Server broadcasts timer every second |
+| `disconnect` | `player_left` | Client disconnects; server broadcasts |
+
+### 6.4 Word Validation Engine (Backend)
+
+**Responsibilities:**
+1. Check if word is in dictionary (use ENABLE or SOWPODS word list).
+2. Check if word path exists on board using DFS/BFS.
+3. Return validation result: `{ is_valid: boolean, error?: string, points?: integer }`.
+
+**Pseudo-code for Path Validation:**
+```
+function isValidPath(word: string, board: string[4][4]) {
+  for (let start_pos of all board positions) {
+    if (board[start_pos] === word[0]) {
+      if (dfs(word, start_pos, board, [])) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function dfs(word: string, pos: {x, y}, board, visited) {
+  if (word.length === 0) return true
+  if (!isInBounds(pos)) return false
+  if (visited.includes(pos)) return false
+  if (board[pos.x][pos.y] !== word[0]) return false
+  
+  visited.push(pos)
+  for (let next_pos of getAdjacent(pos)) {
+    if (dfs(word.slice(1), next_pos, board, visited)) {
+      return true
+    }
+  }
+  visited.pop()
+  return false
+}
+```
+
+**Performance Considerations:**
+- Pre-compute answer key (all possible words) when board is generated (~200–500ms on typical hardware for a 4×4 board with standard dictionary).
+- Cache answer key in memory for the duration of the round.
+- Word validation on submission should be fast (< 100ms): lookup in dictionary (O(1) hash), then path check (O(board_size * depth) DFS).
+
+### 6.5 Scoring Engine (Backend)
+
+**Responsibilities:**
+1. Collect all submitted words for the round.
+2. Deduplicate: mark any word submitted by 2+ players.
+3. Assign points only to unique words.
+4. Calculate final rankings.
+
+**Pseudo-code:**
+```
+function calculateRankings(submissions: PlayerSubmission[], round: Round) {
+  const wordCounts = {}
+  
+  // Count word frequencies
+  for (let sub of submissions) {
+    if (sub.is_valid) {
+      wordCounts[sub.word] = (wordCounts[sub.word] || 0) + 1
+    }
+  }
+  
+  // Calculate scores
+  const playerScores = {}
+  for (let sub of submissions) {
+    if (sub.is_valid && wordCounts[sub.word] === 1) {
+      playerScores[sub.player_id] = (playerScores[sub.player_id] || 0) + getPoints(sub.word.length)
+    }
+  }
+  
+  // Generate rankings
+  const rankings = Object.entries(playerScores)
+    .sort((a, b) => b[1] - a[1])
+    .map((entry, index) => {
+      return {
+        rank: index + 1,
+        player_id: entry[0],
+        final_score: entry[1]
+      }
+    })
+  
+  return rankings
+}
+
+function getPoints(length: integer) {
+  if (length <= 4) return 1
+  if (length === 5) return 2
+  if (length === 6) return 3
+  if (length === 7) return 5
+  return 11  // 8+ letters
+}
+```
+
+---
+
+## 7. Technical Stack Recommendations
+
+### Frontend
+- **Framework:** React (Vite) or Vue 3
+- **State Management:** Context API + hooks (or Zustand for light state)
+- **Real-time:** Socket.io (WebSocket client) for event sync
+- **Styling:** Tailwind CSS or CSS-in-JS (match Word Bench design system)
+- **UI Components:** Reuse Word Bench components where possible (buttons, cards, grid)
+- **Deployment:** Vercel, Netlify, or Cloudflare Pages
+
+### Backend
+- **Runtime:** Node.js (Express.js or Fastify)
+- **Real-time:** Socket.io server or native WebSocket
+- **Database:** PostgreSQL (persistent storage) or Redis (session/cache)
+- **Word Validation:** Node module like `nspell` (with ENABLE dictionary) or API call to external service
+- **Deployment:** Heroku, Railway, DigitalOcean, AWS EC2 / Lambda, Cloudflare Workers
+
+### External Services
+- **Dictionary/Word List:** ENABLE or SOWPODS (bundled locally or API)
+- **Boggle Solver:** Pre-compute using library like `wordgrid` (npm package)
+- **Analytics (optional):** Segment, Mixpanel
+
+---
+
+## 8. Acceptance Criteria
+
+### Functional
+
+- [ ] Players can create a room and receive a unique 6-char room code
+- [ ] Players can join a room using room code
+- [ ] Room displays 2–4 players in real-time
+- [ ] Host can start a round (if ≥2 players present)
+- [ ] Round generates a random 4×4 letter board
+- [ ] Timer counts down from 90 seconds, visible to all players
+- [ ] Players can submit words via text input + GO button
+- [ ] Invalid words show error message immediately
+- [ ] Valid words are added to player's word list and score updates in real-time
+- [ ] All players see the same global word count during round (`X unique / Y possible`)
+- [ ] When timer reaches 0:00, round ends automatically
+- [ ] Final rankings screen shows top 3 players with scores
+- [ ] Answer key displays after round ends, grouped by word length
+- [ ] Missed words section displays valid words not found by any player
+- [ ] Host can press "NEW ROUND" to start a new round without leaving room
+- [ ] WebSocket sync is real-time (< 200ms latency for submissions)
+
+### Non-Functional
+
+- [ ] Page loads in < 2 seconds (initial)
+- [ ] Word validation response time < 100ms
+- [ ] Board generation < 500ms
+- [ ] Support 100+ concurrent rooms (cloud-based solution)
+- [ ] Support 4 players per room, simultaneous submissions
+- [ ] Mobile responsive (works on tablets, though not optimized for phones in MVP)
+- [ ] No console errors or warnings (production build)
+- [ ] Code organized into reusable components / modules
+
+### UI/UX
+
+- [ ] Button hover/focus states are clear
+- [ ] Timer color changes (green → yellow → red)
+- [ ] Input field clears on successful submission
+- [ ] Visual feedback for valid/invalid words (checkmark, error message)
+- [ ] Player list scrolls if > 4 players (edge case)
+- [ ] Leaderboard is easy to read at a glance
+- [ ] Answer key is searchable or scrollable
+- [ ] No typos in UI text
+
+---
+
+## 9. Launch Plan & Phases
+
+### Phase 1 (MVP - Week 1–2)
+- Core game loop: board generation → round timer → word validation → ranking
+- Basic WebSocket sync
+- Single-round competitive play
+- Answer key display
+- Deploy to staging for testing
+
+### Phase 2 (Polish - Week 3)
+- UI refinements based on testing
+- Answer key improvements (missed words section)
+- Performance optimization (WebSocket latency, DB queries)
+- Deploy to production
+
+### Phase 3 (Future)
+- Multi-round leaderboards with Elo
+- Difficulty levels / custom board sizes
+- Replay / archive functionality
+- Mobile app (React Native or Flutter)
+
+---
+
+## 10. Success Metrics
+
+- **Engagement:** Avg. game duration, games played per session, repeat play rate
+- **Performance:** P50 word validation latency, uptime, room creation success rate
+- **User Feedback:** NPS, qualitative interviews, bug reports
+
+---
+
+## 11. Edge Cases & Error Handling
+
+### Edge Cases
+
+1. **Player Disconnects Mid-Round**
+   - Action: Mark player as inactive but keep room open.
+   - Option A: Auto-end round if only 1 player remains.
+   - Option B: Allow remaining players to continue; at round end, show "Player offline" for disconnected player.
+   - Recommendation: Option B for MVP (less disruptive).
+
+2. **Duplicate Word Submission by Same Player**
+   - Action: Reject with message "You already submitted this word."
+
+3. **Typos in Word (e.g., "CAT" vs "CATT")**
+   - Action: Show "Word not in dictionary" error.
+
+4. **Room Code Collision**
+   - Action: Use UUID + hash to room code; collision probability negligible.
+
+5. **Rapid Submissions (Bot/Spam)**
+   - Action: Server-side rate limit (e.g., max 10 words per 10 seconds per player).
+
+6. **Board with No Valid Words (Extremely Rare)**
+   - Action: Reject board generation, try again (or manually add board to whitelist).
+
+### Error Handling
+
+- **Network Error During Submission:** Retry logic (client-side); show "Connection lost. Retrying..." message.
+- **Invalid Room Code:** Show "Room not found. Check code and try again."
+- **Room Full:** Show "Room is full. Try another room."
+- **WebSocket Disconnect:** Attempt reconnect (exponential backoff); show offline status.
+- **500 Server Error:** Show "Server error. Please refresh and try again."
+
+---
+
+## 12. Security & Privacy Considerations
+
+- **Session Management:** Use JWT or secure session cookies. Validate player token on every API call.
+- **Input Validation:** Sanitize all text input (player names, room codes). Reject special characters in names.
+- **Word List:** Use standardized, non-offensive dictionary (ENABLE list is appropriate).
+- **Rate Limiting:** Implement server-side rate limiting to prevent abuse (submissions, room creation).
+- **CORS:** Restrict API access to frontend domain only.
+- **No PII Logging:** Avoid logging player names or detailed gameplay logs.
+- **GDPR Compliance:** Allow players to delete account/game history (future phase).
+
+---
+
+## 13. Future Enhancements
+
+- **Team Mode:** 2v2 or 3v3 with shared score.
+- **Custom Difficulty:** Board size (5×5, 6×6), time limits (60–180s).
+- **Daily Challenges:** Shared daily board, global leaderboard.
+- **Streaks & Achievements:** "Found 7-letter word," "Perfect round," etc.
+- **AI Opponent:** Option to play vs. language model (uses same Boggle solver).
+- **Voice Chat Integration:** Spatial audio for multiplayer experience.
+- **Cosmetics/Skins:** Player avatars, board themes.
+- **Monetization:** Premium cosmetics, ad-free mode, tournament entry fees (future).
+
+---
+
+## 14. Glossary
+
+| Term | Definition |
+|------|------------|
+| **Boggle** | Word game where players find words on a grid of letters within a time limit |
+| **Board** | 4×4 grid of random letters |
+| **Path** | Continuous sequence of adjacent cells (horizontal, vertical, diagonal) |
+| **Deduplication** | Process of removing words submitted by multiple players |
+| **Answer Key** | Complete list of all valid words possible on a given board |
+| **Unique Word** | A word submitted by exactly 1 player in a round |
+| **Room Code** | 6-character alphanumeric identifier for a game room (e.g., "ABC123") |
+| **Round** | Single game session (90 seconds) on one board |
+| **WebSocket** | Two-way communication protocol for real-time data sync |
+
+---
+
+## 15. Questions for Clarification (If Needed)
+
+- Should players see real-time paths highlighted on the board as they type?
+- Should the game support replays / move back through past rounds?
+- Is there a preference for dictionary (ENABLE vs. SOWPODS vs. other)?
+- Should there be difficulty levels (e.g., "Hard mode" with uncommon words only)?
+- Any preference for styling (dark mode, light mode, or both)?
+- Should rooms auto-close after 30 min of inactivity, or stay open indefinitely?
+
+---
+
+**End of PRD**
+
+**For Implementation Assistance:**  
+Ensure the AI implementing this document has access to:
+1. This full PRD
+2. Word Bench UI screenshots (already provided)
+3. ENABLE or SOWPODS word list (download from public source)
+4. Boggle-solver reference code (e.g., npm `wordgrid` or similar)
+5. WebSocket library documentation (Socket.io or native WebSocket)
+
+Good luck! 🎉

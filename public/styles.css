@@ -1,0 +1,293 @@
+:root {
+  --bg: #ece5e3;
+  --line: #b58b97;
+  --text: #4c5663;
+  --panel: #ffffffb3;
+  --board-bg: #17253b;
+  --tile: #496383;
+  --input: #f2f2d1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app {
+  width: min(1080px, 94vw);
+  margin: 24px auto;
+}
+
+.card {
+  background: transparent;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 22px;
+}
+
+.game {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 0;
+  border: 1px solid var(--line);
+}
+
+.boardWrap {
+  background: linear-gradient(160deg, #1a2d47, #152237);
+  color: #e2e7ee;
+  padding: 18px;
+}
+
+.side {
+  background: var(--bg);
+  padding: 16px;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.sub,
+.quote {
+  text-align: center;
+}
+
+.line {
+  height: 1px;
+  background: var(--line);
+  margin: 20px 0;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+input,
+button {
+  font-size: 18px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  border: 1px solid #969696;
+  color: var(--text);
+}
+
+input {
+  min-width: 220px;
+  background: #f7f2ef;
+}
+
+button {
+  background: #ece6e1;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tiny {
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
+.room-code {
+  text-align: center;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.playerCard {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 12px;
+}
+
+.liveRank {
+  border-width: 2px;
+  background: linear-gradient(180deg, #ffffffd9, #ffffffb3);
+}
+
+.liveRank.me {
+  box-shadow: 0 0 0 2px #4a8cff66 inset;
+}
+
+.rank-1 {
+  border-color: #d4aa3d;
+  background: linear-gradient(180deg, #fff5cc, #f8e7ad);
+}
+
+.rank-2 {
+  border-color: #a7b2bf;
+  background: linear-gradient(180deg, #eef2f7, #dde4ec);
+}
+
+.rank-3 {
+  border-color: #b8764e;
+  background: linear-gradient(180deg, #f3dfd2, #e7ccb8);
+}
+
+.rank-other {
+  border-color: #9f95a0;
+  background: linear-gradient(180deg, #f0e9ef, #e5dce7);
+}
+
+.gameTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+#timerText.warn {
+  color: #ffe08a;
+}
+
+#timerText.danger {
+  color: #ff7a7a;
+}
+
+.board {
+  width: min(430px, 100%);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 16px auto;
+}
+
+.tile {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  background: var(--tile);
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  text-transform: uppercase;
+}
+
+.submitRow {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+#wordInput {
+  background: var(--input);
+  width: 100%;
+}
+
+.myWords {
+  margin-top: 10px;
+  min-height: 42px;
+  color: #dbe3ee;
+}
+
+.feedback {
+  min-height: 24px;
+}
+
+.ok {
+  color: #9bffbc;
+}
+
+.err {
+  color: #ff9f9f;
+}
+
+.grouped {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.podium {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.podiumStep {
+  border: 2px solid #a89ba3;
+  border-radius: 8px 8px 0 0;
+  padding: 10px;
+  text-align: center;
+}
+
+.podium .rank-1 {
+  min-height: 190px;
+}
+
+.podium .rank-2 {
+  min-height: 160px;
+}
+
+.podium .rank-3 {
+  min-height: 140px;
+}
+
+.podiumLabel {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.podiumName {
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.podiumScore {
+  font-size: 18px;
+  margin-top: 8px;
+}
+
+.podiumMeta {
+  font-size: 13px;
+  opacity: 0.8;
+  margin-top: 6px;
+}
+
+.rankingRow {
+  margin-bottom: 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 920px) {
+  .game {
+    grid-template-columns: 1fr;
+  }
+
+  .podium {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .podium .rank-1,
+  .podium .rank-2,
+  .podium .rank-3 {
+    min-height: 0;
+    border-radius: 8px;
+  }
+}

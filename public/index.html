@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Word Boggle</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section id="homeView" class="card">
+        <h1>Welcome to Boggle</h1>
+        <p class="sub">Play Boggle. Find words. Win.</p>
+        <div class="line"></div>
+        <div class="row">
+          <input id="nameInput" maxlength="20" placeholder="Your name" />
+        </div>
+        <div class="row">
+          <button id="createBtn">CREATE</button>
+          <button id="showJoinBtn">JOIN</button>
+        </div>
+        <div id="joinPanel" class="row hidden">
+          <input id="roomCodeInput" maxlength="6" placeholder="Room Code" />
+          <button id="joinBtn">JOIN ROOM</button>
+        </div>
+        <p class="quote">Perfectly balanced, as all things should be.</p>
+      </section>
+
+      <section id="lobbyView" class="card hidden">
+        <h1>Waiting for more players...</h1>
+        <div class="line"></div>
+        <p class="room-code">
+          Room:
+          <strong id="lobbyRoomCode"></strong>
+          <button id="copyCodeBtn" class="tiny">COPY</button>
+        </p>
+        <div id="playerList" class="list"></div>
+        <div class="row">
+          <button id="leaveBtn">LEAVE</button>
+          <button id="startBtn">START ROUND</button>
+        </div>
+      </section>
+
+      <section id="gameView" class="game hidden">
+        <div class="boardWrap">
+          <header class="gameTop">
+            <span>Room: <strong id="gameRoomCode"></strong></span>
+            <span id="timerText">Time: 01:30</span>
+            <button id="endRoundBtn" class="tiny">GIVE UP</button>
+          </header>
+
+          <div id="board" class="board"></div>
+          <p id="progressText">Words Found: 0/0 (0%)</p>
+          <div id="feedback" class="feedback"></div>
+
+          <div class="submitRow">
+            <input id="wordInput" placeholder="Enter a Word..." />
+            <button id="submitWordBtn">GO</button>
+          </div>
+          <div id="myWords" class="myWords"></div>
+        </div>
+
+        <aside class="side">
+          <h3>PLAYERS</h3>
+          <div id="livePlayers"></div>
+        </aside>
+      </section>
+
+      <section id="resultView" class="card hidden">
+        <h1>ROUND COMPLETE - FINAL RANKINGS</h1>
+        <div class="line"></div>
+        <div id="rankings" class="list"></div>
+        <h3>Submitted Words</h3>
+        <div id="submittedWords" class="grouped"></div>
+        <h3>Missed Words</h3>
+        <div id="missedWords" class="grouped"></div>
+        <div class="row">
+          <button id="newRoundBtn">NEW ROUND</button>
+          <button id="resultsLeaveBtn">LEAVE ROOM</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
