@@ -6,6 +6,11 @@ const state = {
   room: null,
   myWords: [],
   results: null,
+  selection: {
+    dragging: false,
+    pointerId: null,
+    path: [],
+  },
 };
 
 const el = {
@@ -99,6 +104,134 @@ function rankClass(rank) {
   return "rank-other";
 }
 
+function isAdjacent(a, b) {
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
+}
+
+function pathWord(path) {
+  const board = state.room?.round?.board;
+  if (!board || !Array.isArray(path) || path.length === 0) return "";
+  return path.map((p) => board[p.y]?.[p.x] || "").join("");
+}
+
+function hasPoint(path, point) {
+  return path.some((p) => p.x === point.x && p.y === point.y);
+}
+
+function updateWordInputFromSelection() {
+  const word = pathWord(state.selection.path);
+  el.wordInput.value = word;
+}
+
+function clearSelection() {
+  state.selection.dragging = false;
+  state.selection.pointerId = null;
+  state.selection.path = [];
+}
+
+function startSelection(point, pointerId) {
+  state.selection.dragging = true;
+  state.selection.pointerId = pointerId;
+  state.selection.path = [point];
+  updateWordInputFromSelection();
+  render();
+}
+
+function extendSelection(point) {
+  if (!state.selection.dragging || !state.selection.path.length) return;
+
+  const path = state.selection.path;
+  const last = path[path.length - 1];
+  if (last.x === point.x && last.y === point.y) return;
+
+  if (path.length >= 2) {
+    const prev = path[path.length - 2];
+    if (prev.x === point.x && prev.y === point.y) {
+      path.pop();
+      updateWordInputFromSelection();
+      render();
+      return;
+    }
+  }
+
+  if (!isAdjacent(last, point)) return;
+  if (hasPoint(path, point)) return;
+
+  path.push(point);
+  updateWordInputFromSelection();
+  render();
+}
+
+function endSelection(pointerId) {
+  if (!state.selection.dragging) return;
+  if (state.selection.pointerId !== null && pointerId !== undefined && pointerId !== state.selection.pointerId) return;
+  state.selection.dragging = false;
+  state.selection.pointerId = null;
+  render();
+}
+
+function extendSelectionFromEvent(e) {
+  if (!state.selection.dragging) return;
+  if (state.selection.pointerId !== null && e.pointerId !== state.selection.pointerId) return;
+  const target = document.elementFromPoint(e.clientX, e.clientY);
+  const tile = target?.closest?.(".tile");
+  if (!tile || !el.board.contains(tile)) return;
+  const point = { x: Number(tile.dataset.x), y: Number(tile.dataset.y) };
+  extendSelection(point);
+}
+
+function buildBoardHtml(board) {
+  const selected = new Set(state.selection.path.map((p) => `${p.x},${p.y}`));
+  const tail = state.selection.path[state.selection.path.length - 1];
+
+  let html = "";
+  for (let y = 0; y < board.length; y += 1) {
+    for (let x = 0; x < board[y].length; x += 1) {
+      const key = `${x},${y}`;
+      const isSelected = selected.has(key);
+      const isCurrent = tail && tail.x === x && tail.y === y;
+      html += `<div class="tile ${isSelected ? "tileSelected" : ""} ${isCurrent ? "tileCurrent" : ""}" data-x="${x}" data-y="${y}">${
+        board[y][x]
+      }</div>`;
+    }
+  }
+  return html;
+}
+
+function renderSelectionLinks() {
+  const old = el.board.querySelectorAll(".pathLine");
+  old.forEach((n) => n.remove());
+
+  if (!state.selection.path || state.selection.path.length < 2) return;
+
+  for (let i = 1; i < state.selection.path.length; i += 1) {
+    const a = state.selection.path[i - 1];
+    const b = state.selection.path[i];
+    const tileA = el.board.querySelector(`.tile[data-x="${a.x}"][data-y="${a.y}"]`);
+    const tileB = el.board.querySelector(`.tile[data-x="${b.x}"][data-y="${b.y}"]`);
+    if (!tileA || !tileB) continue;
+
+    const ax = tileA.offsetLeft + tileA.offsetWidth / 2;
+    const ay = tileA.offsetTop + tileA.offsetHeight / 2;
+    const bx = tileB.offsetLeft + tileB.offsetWidth / 2;
+    const by = tileB.offsetTop + tileB.offsetHeight / 2;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+    const line = document.createElement("div");
+    line.className = "pathLine";
+    line.style.left = `${ax}px`;
+    line.style.top = `${ay}px`;
+    line.style.width = `${len}px`;
+    line.style.transform = `rotate(${angle}deg)`;
+    el.board.appendChild(line);
+  }
+}
+
 function render() {
   if (!state.room) {
     show(el.homeView);
@@ -106,6 +239,7 @@ function render() {
   }
 
   if (state.room.status === "LOBBY") {
+    clearSelection();
     show(el.lobbyView);
     el.lobbyRoomCode.textContent = state.room.code;
     el.playerList.innerHTML = state.room.players
@@ -125,7 +259,8 @@ function render() {
     el.timerText.classList.toggle("warn", r.secondsRemaining <= 15 && r.secondsRemaining > 5);
     el.timerText.classList.toggle("danger", r.secondsRemaining <= 5);
 
-    el.board.innerHTML = r.board.flat().map((c) => `<div class="tile">${c}</div>`).join("");
+    el.board.innerHTML = buildBoardHtml(r.board);
+    renderSelectionLinks();
     const pct = r.totalPossibleWords ? Math.floor((r.uniqueWordsFound / r.totalPossibleWords) * 100) : 0;
     el.progressText.textContent = `Words Found: ${r.uniqueWordsFound}/${r.totalPossibleWords} (${pct}%)`;
     el.myWords.textContent = `My words: ${state.myWords.join(", ")}`;
@@ -143,6 +278,7 @@ function render() {
   }
 
   if (state.room.status === "ROUND_END") {
+    clearSelection();
     show(el.resultView);
     const me = myPlayer();
     el.newRoundBtn.classList.toggle("hidden", !me?.isHost);
@@ -186,9 +322,11 @@ socket.on("joined", (info) => {
 });
 
 socket.on("room_state", (room) => {
+  const prevStatus = state.room?.status;
   state.room = room;
   if (room.status !== "ROUND_END") state.results = null;
   if (room.status !== "ACTIVE_ROUND") state.myWords = [];
+  if (prevStatus !== "ACTIVE_ROUND" && room.status === "ACTIVE_ROUND") clearSelection();
   render();
 });
 
@@ -204,6 +342,7 @@ socket.on("submit_result", (res) => {
     state.myWords.push(res.word);
     state.myWords.sort();
     el.wordInput.value = "";
+    clearSelection();
   }
   render();
 });
@@ -281,6 +420,40 @@ function submitWord() {
 document.getElementById("submitWordBtn").addEventListener("click", submitWord);
 el.wordInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") submitWord();
+});
+
+el.wordInput.addEventListener("input", () => {
+  if (state.selection.path.length > 0) {
+    clearSelection();
+    render();
+  }
+});
+
+el.board.addEventListener("pointerdown", (e) => {
+  if (state.room?.status !== "ACTIVE_ROUND") return;
+  const tile = e.target.closest(".tile");
+  if (!tile) return;
+  e.preventDefault();
+  const point = { x: Number(tile.dataset.x), y: Number(tile.dataset.y) };
+  startSelection(point, e.pointerId);
+  if (el.board.setPointerCapture) {
+    try {
+      el.board.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+});
+
+window.addEventListener("pointermove", (e) => {
+  extendSelectionFromEvent(e);
+});
+
+window.addEventListener("pointerup", (e) => {
+  extendSelectionFromEvent(e);
+  endSelection(e.pointerId);
+});
+
+window.addEventListener("pointercancel", (e) => {
+  endSelection(e.pointerId);
 });
 
 socket.on("connect", () => {
