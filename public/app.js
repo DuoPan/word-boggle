@@ -513,7 +513,8 @@ document.getElementById("newRoundBtn").addEventListener("click", () => {
 });
 
 function submitWord(wordOverride, options = {}) {
-  const word = String(wordOverride ?? el.wordInput.value).normalize("NFKC").trim().toLowerCase();
+  const rawWord = typeof wordOverride === "string" ? wordOverride : el.wordInput.value;
+  const word = String(rawWord).normalize("NFKC").trim().toLowerCase();
   if (!word) return;
   el.wordInput.value = word;
   socket.emit("submit_word", { word });
@@ -524,7 +525,7 @@ function submitWord(wordOverride, options = {}) {
   }
 }
 
-document.getElementById("submitWordBtn").addEventListener("click", submitWord);
+document.getElementById("submitWordBtn").addEventListener("click", () => submitWord());
 el.wordInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") submitWord();
 });
