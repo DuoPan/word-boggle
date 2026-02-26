@@ -13,6 +13,8 @@ const state = {
   },
 };
 let lastEndRoundEmitAt = 0;
+let fxHideTimer = null;
+let audioCtx = null;
 
 const el = {
   homeView: document.getElementById("homeView"),
@@ -39,6 +41,73 @@ const el = {
   longestBoards: document.getElementById("longestBoards"),
   newRoundBtn: document.getElementById("newRoundBtn"),
 };
+
+function ensureSubmitFxOverlay() {
+  let overlay = document.getElementById("submitFxOverlay");
+  if (overlay) return overlay;
+  overlay = document.createElement("div");
+  overlay.id = "submitFxOverlay";
+  overlay.className = "submitFx";
+  overlay.innerHTML = '<div class="submitFxInner"><div id="submitFxText" class="submitFxText"></div></div>';
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function getAudioContext() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  return audioCtx;
+}
+
+function playTone(ctx, at, hz, duration, type, volume) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(hz, at);
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.linearRampToValueAtTime(volume, at + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(at);
+  osc.stop(at + duration + 0.03);
+}
+
+function playSubmitSound(ok) {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const t = ctx.currentTime + 0.01;
+    if (ok) {
+      playTone(ctx, t, 660, 0.09, "triangle", 0.04);
+      playTone(ctx, t + 0.09, 880, 0.12, "triangle", 0.045);
+    } else {
+      playTone(ctx, t, 240, 0.12, "sawtooth", 0.04);
+      playTone(ctx, t + 0.08, 170, 0.16, "square", 0.032);
+    }
+  } catch {}
+}
+
+function triggerSubmitFx(ok, message) {
+  const overlay = ensureSubmitFxOverlay();
+  const textNode = document.getElementById("submitFxText");
+  if (textNode) {
+    textNode.textContent = ok ? "√" : "x";
+  }
+
+  overlay.classList.remove("submitFxOk", "submitFxErr", "show");
+  void overlay.offsetWidth;
+  overlay.classList.add(ok ? "submitFxOk" : "submitFxErr", "show");
+
+  if (fxHideTimer) clearTimeout(fxHideTimer);
+  fxHideTimer = setTimeout(() => {
+    overlay.classList.remove("show", "submitFxOk", "submitFxErr");
+  }, ok ? 520 : 620);
+
+  playSubmitSound(ok);
+}
 
 function myPlayer() {
   if (!state.room || !state.me) return null;
@@ -427,6 +496,7 @@ socket.on("self_state", (payload) => {
 socket.on("submit_result", (res) => {
   el.feedback.className = `feedback ${res.ok ? "ok" : "err"}`;
   el.feedback.textContent = res.message;
+  triggerSubmitFx(res.ok, res.message);
   if (res.ok) {
     state.myWords.push(res.word);
     state.myWords.sort();

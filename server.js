@@ -13,8 +13,7 @@ const MIN_PLAYERS = 1;
 const BOARD_SIZE = 4;
 const MIN_WORD_LENGTH = 3;
 const MAX_WORD_LENGTH = 8;
-const COMMON_ENGLISH_LIMIT = 12000;
-const EXTRA_ALLOWED_WORDS = new Set(["fade", "fool", "eat"]);
+const HIGH_FREQUENCY_LIMIT = 40000;
 const DISCONNECT_GRACE_MS = 60_000;
 const WEIGHTED_LETTERS = "eeeeeeeeeeeeaaaaiiiioooonnnrrrtttllssudgpbcmfhvwykjxqz";
 
@@ -29,27 +28,56 @@ app.get("/healthz", (req, res) => {
 
 const rooms = new Map();
 
-const dictionary = loadDictionary();
+const { dictionary, dictionarySources } = loadDictionary();
 const trie = buildTrie(dictionary);
 
 function loadDictionary() {
-  const commonWords = new Set(
-    getWordsList("english", COMMON_ENGLISH_LIMIT)
-      .map((w) => String(w).trim().toLowerCase())
-      .filter((w) => /^[a-z]+$/.test(w)),
-  );
-
-  const raw = fs.readFileSync(wordListPath, "utf8");
-  const out = new Set();
-  for (const word of raw.split("\n")) {
-    const w = word.trim().toLowerCase();
-    if (!w) continue;
-    if (w.length < MIN_WORD_LENGTH || w.length > MAX_WORD_LENGTH) continue;
-    if (!/^[a-z]+$/.test(w)) continue;
-    if (!commonWords.has(w) && !EXTRA_ALLOWED_WORDS.has(w)) continue;
-    out.add(w);
+  const sources = [loadMostCommonSource(HIGH_FREQUENCY_LIMIT), loadWordListSource()];
+  const merged = new Set();
+  for (const source of sources) {
+    for (const word of source.words) merged.add(word);
   }
-  return out;
+
+  console.log(
+    `[dictionary] merged=${merged.size} (${sources.map((s) => `${s.name}:${s.words.size}`).join(", ")})`,
+  );
+  return { dictionary: merged, dictionarySources: sources };
+}
+
+function normalizeDictionaryWord(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidDictionaryWord(word) {
+  return word.length >= MIN_WORD_LENGTH && word.length <= MAX_WORD_LENGTH && /^[a-z]+$/.test(word);
+}
+
+function loadMostCommonSource(limit) {
+  const words = new Set();
+  for (const rawWord of getWordsList("english", limit)) {
+    const word = normalizeDictionaryWord(rawWord);
+    if (!isValidDictionaryWord(word)) continue;
+    words.add(word);
+  }
+  return { name: "most-common", words };
+}
+
+function loadWordListSource() {
+  const words = new Set();
+  const raw = fs.readFileSync(wordListPath, "utf8");
+  for (const rawWord of raw.split("\n")) {
+    const word = normalizeDictionaryWord(rawWord);
+    if (!isValidDictionaryWord(word)) continue;
+    words.add(word);
+  }
+  return { name: "word-list", words };
+}
+
+function isKnownDictionaryWord(word) {
+  for (const source of dictionarySources) {
+    if (source.words.has(word)) return true;
+  }
+  return false;
 }
 
 function buildTrie(words) {
@@ -475,7 +503,7 @@ io.on("connection", (socket) => {
       socket.emit("submit_result", { ok: false, word: input, message: "Word too short." });
       return;
     }
-    if (!dictionary.has(input)) {
+    if (!isKnownDictionaryWord(input)) {
       socket.emit("submit_result", { ok: false, word: input, message: "Not in dictionary." });
       return;
     }
