@@ -513,8 +513,9 @@ document.getElementById("newRoundBtn").addEventListener("click", () => {
 });
 
 function submitWord(wordOverride, options = {}) {
-  const word = String(wordOverride ?? el.wordInput.value).trim();
+  const word = String(wordOverride ?? el.wordInput.value).normalize("NFKC").trim().toLowerCase();
   if (!word) return;
+  el.wordInput.value = word;
   socket.emit("submit_word", { word });
   if (options.clearAfter) {
     el.wordInput.value = "";

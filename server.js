@@ -172,6 +172,10 @@ function getPoints(length) {
   return 11;
 }
 
+function normalizeWordInput(value) {
+  return String(value || "").normalize("NFKC").trim().toLowerCase();
+}
+
 function summarizeRoom(room) {
   const players = [...room.players.values()].map((p) => ({
     id: p.id,
@@ -462,7 +466,7 @@ io.on("connection", (socket) => {
     const { room, player } = getSocketRoom(socket);
     if (!room || !player || room.status !== "ACTIVE_ROUND" || !room.round) return;
 
-    const input = String(word || "").trim().toLowerCase();
+    const input = normalizeWordInput(word);
     if (!/^[a-z]+$/.test(input)) {
       socket.emit("submit_result", { ok: false, word: input, message: "Only English letters." });
       return;
