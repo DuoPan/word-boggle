@@ -14,7 +14,7 @@ const BOARD_SIZE = 4;
 const MIN_WORD_LENGTH = 3;
 const MAX_WORD_LENGTH = 8;
 const COMMON_ENGLISH_LIMIT = 12000;
-const EXTRA_ALLOWED_WORDS = new Set(["fade", "fool"]);
+const EXTRA_ALLOWED_WORDS = new Set(["fade", "fool", "eat"]);
 const DISCONNECT_GRACE_MS = 60_000;
 const WEIGHTED_LETTERS = "eeeeeeeeeeeeaaaaiiiioooonnnrrrtttllssudgpbcmfhvwykjxqz";
 

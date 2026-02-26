@@ -12,6 +12,7 @@ const state = {
     path: [],
   },
 };
+let lastEndRoundEmitAt = 0;
 
 const el = {
   homeView: document.getElementById("homeView"),
@@ -491,9 +492,21 @@ document.getElementById("startBtn").addEventListener("click", () => {
   socket.emit("start_round");
 });
 
-document.getElementById("endRoundBtn").addEventListener("click", () => {
+function requestEndRound(e) {
+  const now = Date.now();
+  if (now - lastEndRoundEmitAt < 250) return;
+  lastEndRoundEmitAt = now;
+  if (e?.type === "pointerup") {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  clearSelection();
+  render();
   socket.emit("end_round");
-});
+}
+
+document.getElementById("endRoundBtn").addEventListener("click", requestEndRound);
+document.getElementById("endRoundBtn").addEventListener("pointerup", requestEndRound);
 
 document.getElementById("newRoundBtn").addEventListener("click", () => {
   socket.emit("new_round");
@@ -541,12 +554,21 @@ window.addEventListener("pointermove", (e) => {
 });
 
 window.addEventListener("pointerup", (e) => {
+  if (!state.selection.dragging) return;
+  if (state.selection.pointerId !== null && e.pointerId !== state.selection.pointerId) return;
   extendSelectionFromEvent(e);
   if (state.selection.dragging) {
     const selectedWord = pathWord(state.selection.path);
     submitWord(selectedWord, { clearAfter: true });
   }
   endSelection(e.pointerId);
+  if (el.board.releasePointerCapture) {
+    try {
+      if (el.board.hasPointerCapture(e.pointerId)) {
+        el.board.releasePointerCapture(e.pointerId);
+      }
+    } catch {}
+  }
 });
 
 window.addEventListener("pointercancel", (e) => {
