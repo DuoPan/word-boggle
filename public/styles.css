@@ -245,6 +245,55 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.longestBoards {
+  display: grid;
+  gap: 12px;
+}
+
+.longestMeta {
+  margin: 0;
+}
+
+.longestGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.longestCard {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff8;
+}
+
+.longestWord {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.answerBoard {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.answerTile {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: #7d8fa6;
+  color: #fff;
+  font-weight: 700;
+}
+
+.answerTile.onPath {
+  background: #e3b457;
+  color: #2f2f2f;
+  box-shadow: 0 0 0 2px #ffe4a8 inset;
+}
+
 .podium {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

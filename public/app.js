@@ -35,6 +35,7 @@ const el = {
   rankings: document.getElementById("rankings"),
   submittedWords: document.getElementById("submittedWords"),
   missedWords: document.getElementById("missedWords"),
+  longestBoards: document.getElementById("longestBoards"),
   newRoundBtn: document.getElementById("newRoundBtn"),
 };
 
@@ -114,6 +115,92 @@ function pathWord(path) {
   const board = state.room?.round?.board;
   if (!board || !Array.isArray(path) || path.length === 0) return "";
   return path.map((p) => board[p.y]?.[p.x] || "").join("");
+}
+
+function collectAllAnswerWords(results) {
+  const out = new Set();
+  for (const group of results?.submittedGroups || []) {
+    for (const word of group.items || []) out.add(word);
+  }
+  for (const group of results?.missedGroups || []) {
+    for (const word of group.items || []) out.add(word);
+  }
+  return [...out];
+}
+
+function findBoardPathForWord(word, board) {
+  if (!word || !Array.isArray(board) || board.length === 0 || !Array.isArray(board[0])) return null;
+  const height = board.length;
+  const width = board[0].length;
+  const visited = Array.from({ length: height }, () => Array(width).fill(false));
+
+  function dfs(i, x, y, path) {
+    if (x < 0 || y < 0 || x >= width || y >= height) return null;
+    if (visited[y][x]) return null;
+    if (board[y][x] !== word[i]) return null;
+
+    const nextPath = [...path, { x, y }];
+    if (i === word.length - 1) return nextPath;
+
+    visited[y][x] = true;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        if (dx === 0 && dy === 0) continue;
+        const hit = dfs(i + 1, x + dx, y + dy, nextPath);
+        if (hit) {
+          visited[y][x] = false;
+          return hit;
+        }
+      }
+    }
+    visited[y][x] = false;
+    return null;
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const foundPath = dfs(0, x, y, []);
+      if (foundPath) return foundPath;
+    }
+  }
+  return null;
+}
+
+function buildAnswerBoardHtml(board, path) {
+  const selected = new Set((path || []).map((p) => `${p.x},${p.y}`));
+  let html = '<div class="answerBoard">';
+  for (let y = 0; y < board.length; y += 1) {
+    for (let x = 0; x < board[y].length; x += 1) {
+      const key = `${x},${y}`;
+      html += `<div class="answerTile ${selected.has(key) ? "onPath" : ""}">${board[y][x]}</div>`;
+    }
+  }
+  html += "</div>";
+  return html;
+}
+
+function renderLongestBoards() {
+  const board = state.room?.round?.board;
+  const answers = collectAllAnswerWords(state.results);
+  if (!board || answers.length === 0) {
+    el.longestBoards.innerHTML = "<p>None</p>";
+    return;
+  }
+
+  const maxLen = Math.max(...answers.map((w) => w.length));
+  const longestWords = answers.filter((w) => w.length === maxLen).sort();
+
+  const cards = longestWords
+    .map((word) => {
+      const path = findBoardPathForWord(word, board);
+      return `<div class="longestCard">
+        <p class="longestWord">${escapeHtml(word)} (${word.length})</p>
+        ${buildAnswerBoardHtml(board, path)}
+      </div>`;
+    })
+    .join("");
+
+  el.longestBoards.innerHTML = `<p class="longestMeta">${longestWords.length} word(s), ${maxLen} letters</p><div class="longestGrid">${cards}</div>`;
 }
 
 function hasPoint(path, point) {
@@ -312,6 +399,7 @@ function render() {
       el.rankings.innerHTML = podium + rest;
       renderGrouped(el.submittedWords, state.results.submittedGroups, state.results.submittedGroups.reduce((n, g) => n + g.items.length, 0));
       renderGrouped(el.missedWords, state.results.missedGroups, state.results.missedGroups.reduce((n, g) => n + g.items.length, 0));
+      renderLongestBoards();
     }
   }
 }
@@ -411,10 +499,15 @@ document.getElementById("newRoundBtn").addEventListener("click", () => {
   socket.emit("new_round");
 });
 
-function submitWord() {
-  const word = el.wordInput.value.trim();
+function submitWord(wordOverride, options = {}) {
+  const word = String(wordOverride ?? el.wordInput.value).trim();
   if (!word) return;
   socket.emit("submit_word", { word });
+  if (options.clearAfter) {
+    el.wordInput.value = "";
+    clearSelection();
+    render();
+  }
 }
 
 document.getElementById("submitWordBtn").addEventListener("click", submitWord);
@@ -449,6 +542,10 @@ window.addEventListener("pointermove", (e) => {
 
 window.addEventListener("pointerup", (e) => {
   extendSelectionFromEvent(e);
+  if (state.selection.dragging) {
+    const selectedWord = pathWord(state.selection.path);
+    submitWord(selectedWord, { clearAfter: true });
+  }
   endSelection(e.pointerId);
 });
 

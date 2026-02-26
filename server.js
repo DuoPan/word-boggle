@@ -13,7 +13,8 @@ const MIN_PLAYERS = 1;
 const BOARD_SIZE = 4;
 const MIN_WORD_LENGTH = 3;
 const MAX_WORD_LENGTH = 8;
-const COMMON_ENGLISH_LIMIT = 5000;
+const COMMON_ENGLISH_LIMIT = 12000;
+const EXTRA_ALLOWED_WORDS = new Set(["fade", "fool"]);
 const DISCONNECT_GRACE_MS = 60_000;
 const WEIGHTED_LETTERS = "eeeeeeeeeeeeaaaaiiiioooonnnrrrtttllssudgpbcmfhvwykjxqz";
 
@@ -45,7 +46,7 @@ function loadDictionary() {
     if (!w) continue;
     if (w.length < MIN_WORD_LENGTH || w.length > MAX_WORD_LENGTH) continue;
     if (!/^[a-z]+$/.test(w)) continue;
-    if (!commonWords.has(w)) continue;
+    if (!commonWords.has(w) && !EXTRA_ALLOWED_WORDS.has(w)) continue;
     out.add(w);
   }
   return out;
