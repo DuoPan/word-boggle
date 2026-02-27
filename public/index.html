@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Word Boggle</title>
+    <title>Scramble Words</title>
     <link rel="stylesheet" href="/styles.css" />
-    <link rel="icon" type="image/png" href="https://github.com/duopan.png" />
+    <link rel="icon" type="image/png" href="./assets/tab.png" />
   </head>
   <body>
     <main id="app">
       <section id="homeView" class="card">
-        <h1>Welcome to Boggle</h1>
-        <p class="sub">Play Boggle. Find words. Win.</p>
+        <h1>Welcome to Scramble Words</h1>
+        <p class="sub">Find words. Win.</p>
         <div class="line"></div>
         <div class="row">
           <input id="nameInput" maxlength="20" placeholder="Your name" />
@@ -24,7 +24,7 @@
           <input id="roomCodeInput" maxlength="6" placeholder="Room Code" />
           <button id="joinBtn">JOIN ROOM</button>
         </div>
-        <p class="quote">Perfectly balanced, as all things should be.</p>
+        <img class="brandLogo" src="./assets/icon.png" alt="Scramble Words logo" />
       </section>
 
       <section id="lobbyView" class="card hidden">
@@ -40,6 +40,7 @@
           <button id="leaveBtn">LEAVE</button>
           <button id="startBtn">START ROUND</button>
         </div>
+        <img class="brandLogo" src="./assets/icon.png" alt="Scramble Words logo" />
       </section>
 
       <section id="gameView" class="game hidden">

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "days": {
+    "2026-02-27": {
+      "createdRooms": 3,
+      "joinEvents": 0,
+      "rejoinEvents": 2,
+      "roundsStarted": 3,
+      "uniquePlayerKeys": [
+        "bdc59976bdb1182ff9226b0451c957802a4cb14c8b2624b88448d150a38d0b4d"
+      ],
+      "activeRoomCodes": [
+        "KFZRBS",
+        "V85NES",
+        "V7S3BE"
+      ]
+    }
+  }
+}

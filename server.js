@@ -14,14 +14,20 @@ const BOARD_SIZE = 4;
 const MIN_WORD_LENGTH = 3;
 const MAX_WORD_LENGTH = 8;
 const HIGH_FREQUENCY_LIMIT = 15000;
+const INCLUDE_WORD_LIST = String(process.env.INCLUDE_WORD_LIST || "").trim() === "1";
+const DEFAULT_CUSTOM_ALLOW_WORDS = new Set(["fade"]);
 const DISCONNECT_GRACE_MS = 60_000;
 const WEIGHTED_LETTERS = "eeeeeeeeeeeeaaaaiiiioooonnnrrrtttllssudgpbcmfhvwykjxqz";
 const DATA_DIR = path.join(__dirname, "data");
 const STATS_FILE = path.join(DATA_DIR, "usage-stats.json");
+const CUSTOM_ALLOW_FILE = path.join(DATA_DIR, "custom-allow-words.json");
+const CANDIDATES_FILE = path.join(DATA_DIR, "dictionary-candidates.json");
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
 const STATS_WEBHOOK_URL = String(process.env.STATS_WEBHOOK_URL || "").trim();
 const STATS_RETENTION_DAYS = Math.max(7, Number(process.env.STATS_RETENTION_DAYS || 90) || 90);
 const STATS_SAVE_DEBOUNCE_MS = 2000;
+const CANDIDATES_SAVE_DEBOUNCE_MS = 2000;
+const MAX_CANDIDATE_WORDS = 5000;
 
 const app = express();
 const server = http.createServer(app);
@@ -35,10 +41,13 @@ app.get("/healthz", (req, res) => {
 
 const rooms = new Map();
 const usageStats = loadUsageStats();
+let customAllowWords = loadCustomAllowWords();
+let dictionaryCandidates = loadDictionaryCandidates();
 let statsSaveTimer = null;
+let candidatesSaveTimer = null;
 
-const { dictionary, dictionarySources } = loadDictionary();
-const trie = buildTrie(dictionary);
+let { dictionary, dictionarySources } = loadDictionary();
+let trie = buildTrie(dictionary);
 
 function dateKey(date = new Date()) {
   const y = date.getFullYear();
@@ -101,6 +110,121 @@ function scheduleStatsSave() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(STATS_FILE, JSON.stringify(usageStats, null, 2), "utf8");
   }, STATS_SAVE_DEBOUNCE_MS);
+}
+
+function scheduleCandidatesSave() {
+  if (candidatesSaveTimer) return;
+  candidatesSaveTimer = setTimeout(() => {
+    candidatesSaveTimer = null;
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(CANDIDATES_FILE, JSON.stringify(dictionaryCandidates, null, 2), "utf8");
+  }, CANDIDATES_SAVE_DEBOUNCE_MS);
+}
+
+function normalizeWordsArray(arr) {
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  for (const raw of arr) {
+    const word = normalizeDictionaryWord(raw);
+    if (!isValidDictionaryWord(word)) continue;
+    out.push(word);
+  }
+  return [...new Set(out)];
+}
+
+function loadCustomAllowWords() {
+  const merged = new Set([...DEFAULT_CUSTOM_ALLOW_WORDS]);
+  if (!fs.existsSync(CUSTOM_ALLOW_FILE)) return merged;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(CUSTOM_ALLOW_FILE, "utf8"));
+    for (const word of normalizeWordsArray(parsed?.words)) merged.add(word);
+  } catch (err) {
+    console.warn("[dictionary] failed to read custom allow file:", err.message);
+  }
+  return merged;
+}
+
+function saveCustomAllowWords() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const words = [...customAllowWords].sort();
+  fs.writeFileSync(CUSTOM_ALLOW_FILE, JSON.stringify({ version: 1, words }, null, 2), "utf8");
+}
+
+function loadDictionaryCandidates() {
+  const blank = { version: 1, words: {} };
+  if (!fs.existsSync(CANDIDATES_FILE)) return blank;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(CANDIDATES_FILE, "utf8"));
+    if (!parsed || typeof parsed !== "object" || !parsed.words || typeof parsed.words !== "object") return blank;
+    return parsed;
+  } catch (err) {
+    console.warn("[dictionary] failed to read candidates file:", err.message);
+    return blank;
+  }
+}
+
+function pruneDictionaryCandidates() {
+  const keys = Object.keys(dictionaryCandidates.words);
+  if (keys.length <= MAX_CANDIDATE_WORDS) return;
+
+  keys.sort((a, b) => {
+    const aa = dictionaryCandidates.words[a];
+    const bb = dictionaryCandidates.words[b];
+    return (aa?.count || 0) - (bb?.count || 0);
+  });
+
+  const toDelete = keys.length - MAX_CANDIDATE_WORDS;
+  for (let i = 0; i < toDelete; i += 1) {
+    delete dictionaryCandidates.words[keys[i]];
+  }
+}
+
+function trackDictionaryCandidate(word, socket) {
+  const normalized = normalizeDictionaryWord(word);
+  if (!isValidDictionaryWord(normalized)) return;
+  if (dictionary.has(normalized)) return;
+
+  if (!dictionaryCandidates.words[normalized]) {
+    dictionaryCandidates.words[normalized] = {
+      count: 0,
+      uniquePlayerKeys: [],
+      firstSeenAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    };
+  }
+
+  const row = dictionaryCandidates.words[normalized];
+  row.count += 1;
+  row.lastSeenAt = new Date().toISOString();
+
+  if (socket) {
+    const key = getPlayerKey(socket);
+    if (!row.uniquePlayerKeys.includes(key)) row.uniquePlayerKeys.push(key);
+  }
+
+  pruneDictionaryCandidates();
+  scheduleCandidatesSave();
+}
+
+function summarizeDictionaryCandidates(limit = 100, minCount = 1) {
+  return Object.entries(dictionaryCandidates.words)
+    .map(([word, row]) => ({
+      word,
+      count: Number(row?.count) || 0,
+      uniquePlayers: Array.isArray(row?.uniquePlayerKeys) ? row.uniquePlayerKeys.length : 0,
+      firstSeenAt: row?.firstSeenAt || null,
+      lastSeenAt: row?.lastSeenAt || null,
+    }))
+    .filter((row) => row.count >= minCount)
+    .sort((a, b) => b.count - a.count || b.uniquePlayers - a.uniquePlayers || a.word.localeCompare(b.word))
+    .slice(0, limit);
+}
+
+function reloadDictionary() {
+  const next = loadDictionary();
+  dictionary = next.dictionary;
+  dictionarySources = next.dictionarySources;
+  trie = buildTrie(dictionary);
 }
 
 function getClientIp(socket) {
@@ -243,15 +367,57 @@ app.post("/admin/stats/push", verifyAdmin, async (req, res) => {
   res.json({ pushed, summary });
 });
 
+app.get("/admin/dictionary/allow", verifyAdmin, (req, res) => {
+  res.json({ count: customAllowWords.size, words: [...customAllowWords].sort() });
+});
+
+app.post("/admin/dictionary/allow", verifyAdmin, (req, res) => {
+  const incoming = normalizeWordsArray(req.body?.words);
+  if (incoming.length === 0) {
+    res.status(400).json({ error: "Provide non-empty `words` array." });
+    return;
+  }
+
+  let added = 0;
+  for (const word of incoming) {
+    if (!customAllowWords.has(word)) {
+      customAllowWords.add(word);
+      added += 1;
+    }
+  }
+
+  saveCustomAllowWords();
+  reloadDictionary();
+  res.json({ added, totalAllowWords: customAllowWords.size });
+});
+
+app.get("/admin/dictionary/candidates", verifyAdmin, (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const minCount = Math.max(1, Number(req.query.minCount) || 1);
+  res.json({
+    totalTrackedWords: Object.keys(dictionaryCandidates.words).length,
+    limit,
+    minCount,
+    items: summarizeDictionaryCandidates(limit, minCount),
+  });
+});
+
 function loadDictionary() {
-  const sources = [loadMostCommonSource(HIGH_FREQUENCY_LIMIT), loadWordListSource()];
+  const sources = [loadMostCommonSource(HIGH_FREQUENCY_LIMIT)];
+  if (INCLUDE_WORD_LIST) sources.push(loadWordListSource());
   const merged = new Set();
   for (const source of sources) {
     for (const word of source.words) merged.add(word);
   }
+  for (const word of customAllowWords) {
+    const normalized = normalizeDictionaryWord(word);
+    if (isValidDictionaryWord(normalized)) merged.add(normalized);
+  }
 
   console.log(
-    `[dictionary] merged=${merged.size} (${sources.map((s) => `${s.name}:${s.words.size}`).join(", ")})`,
+    `[dictionary] merged=${merged.size} (${sources.map((s) => `${s.name}:${s.words.size}`).join(", ")}${
+      customAllowWords.size ? `, custom-allow:${customAllowWords.size}` : ""
+    })`,
   );
   return { dictionary: merged, dictionarySources: sources };
 }
@@ -286,10 +452,7 @@ function loadWordListSource() {
 }
 
 function isKnownDictionaryWord(word) {
-  for (const source of dictionarySources) {
-    if (source.words.has(word)) return true;
-  }
-  return false;
+  return dictionary.has(word);
 }
 
 function buildTrie(words) {
@@ -720,6 +883,7 @@ io.on("connection", (socket) => {
       return;
     }
     if (!isKnownDictionaryWord(input)) {
+      trackDictionaryCandidate(input, socket);
       socket.emit("submit_result", { ok: false, word: input, message: "Not in dictionary." });
       return;
     }
