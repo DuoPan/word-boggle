@@ -16,20 +16,232 @@ const MAX_WORD_LENGTH = 8;
 const HIGH_FREQUENCY_LIMIT = 40000;
 const DISCONNECT_GRACE_MS = 60_000;
 const WEIGHTED_LETTERS = "eeeeeeeeeeeeaaaaiiiioooonnnrrrtttllssudgpbcmfhvwykjxqz";
+const DATA_DIR = path.join(__dirname, "data");
+const STATS_FILE = path.join(DATA_DIR, "usage-stats.json");
+const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
+const STATS_WEBHOOK_URL = String(process.env.STATS_WEBHOOK_URL || "").trim();
+const STATS_RETENTION_DAYS = Math.max(7, Number(process.env.STATS_RETENTION_DAYS || 90) || 90);
+const STATS_SAVE_DEBOUNCE_MS = 2000;
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/healthz", (req, res) => {
   res.status(200).send("ok");
 });
 
 const rooms = new Map();
+const usageStats = loadUsageStats();
+let statsSaveTimer = null;
 
 const { dictionary, dictionarySources } = loadDictionary();
 const trie = buildTrie(dictionary);
+
+function dateKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function loadUsageStats() {
+  const blank = { version: 1, days: {} };
+  if (!fs.existsSync(STATS_FILE)) return blank;
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(STATS_FILE, "utf8"));
+    if (!parsed || typeof parsed !== "object" || !parsed.days || typeof parsed.days !== "object") return blank;
+    for (const [day, row] of Object.entries(parsed.days)) {
+      parsed.days[day] = normalizeStatsRow(row);
+    }
+    return { version: 1, days: parsed.days };
+  } catch (err) {
+    console.warn("[stats] failed to read usage stats file:", err.message);
+    return blank;
+  }
+}
+
+function normalizeStatsRow(row) {
+  const normalized = {
+    createdRooms: Number(row?.createdRooms) || 0,
+    joinEvents: Number(row?.joinEvents) || 0,
+    rejoinEvents: Number(row?.rejoinEvents) || 0,
+    roundsStarted: Number(row?.roundsStarted) || 0,
+    uniquePlayerKeys: Array.isArray(row?.uniquePlayerKeys) ? row.uniquePlayerKeys : [],
+    activeRoomCodes: Array.isArray(row?.activeRoomCodes) ? row.activeRoomCodes : [],
+  };
+  normalized.uniquePlayerKeys = [...new Set(normalized.uniquePlayerKeys)].slice(0, 100_000);
+  normalized.activeRoomCodes = [...new Set(normalized.activeRoomCodes)].slice(0, 100_000);
+  return normalized;
+}
+
+function ensureStatsRow(day) {
+  if (!usageStats.days[day]) usageStats.days[day] = normalizeStatsRow({});
+  return usageStats.days[day];
+}
+
+function pruneOldStats() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - STATS_RETENTION_DAYS);
+  const cutoffKey = dateKey(cutoff);
+
+  for (const day of Object.keys(usageStats.days)) {
+    if (day < cutoffKey) delete usageStats.days[day];
+  }
+}
+
+function scheduleStatsSave() {
+  if (statsSaveTimer) return;
+  statsSaveTimer = setTimeout(() => {
+    statsSaveTimer = null;
+    pruneOldStats();
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(STATS_FILE, JSON.stringify(usageStats, null, 2), "utf8");
+  }, STATS_SAVE_DEBOUNCE_MS);
+}
+
+function getClientIp(socket) {
+  const h = socket.handshake?.headers || {};
+  const forwarded = h["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return socket.handshake?.address || "unknown";
+}
+
+function getPlayerKey(socket) {
+  const ip = getClientIp(socket);
+  const ua = String(socket.handshake?.headers?.["user-agent"] || "").slice(0, 200);
+  return crypto.createHash("sha256").update(`${ip}|${ua}`).digest("hex");
+}
+
+function markRoomActive(code) {
+  const row = ensureStatsRow(dateKey());
+  if (!row.activeRoomCodes.includes(code)) row.activeRoomCodes.push(code);
+}
+
+function trackUsage(eventName, socket, roomCode) {
+  const row = ensureStatsRow(dateKey());
+  if (eventName === "create_room") row.createdRooms += 1;
+  if (eventName === "join_room") row.joinEvents += 1;
+  if (eventName === "rejoin_room") row.rejoinEvents += 1;
+  if (eventName === "start_round") row.roundsStarted += 1;
+
+  if (socket) {
+    const key = getPlayerKey(socket);
+    if (!row.uniquePlayerKeys.includes(key)) row.uniquePlayerKeys.push(key);
+  }
+  if (roomCode) markRoomActive(roomCode);
+  scheduleStatsSave();
+}
+
+function buildStatsSummary() {
+  const today = dateKey();
+  const days = Object.keys(usageStats.days).sort();
+  const latestDays = days.slice(-14).reverse();
+
+  const totals = {
+    createdRooms: 0,
+    joinEvents: 0,
+    rejoinEvents: 0,
+    roundsStarted: 0,
+    activeRooms: 0,
+    uniquePlayers: 0,
+  };
+  const uniquePlayers = new Set();
+  const activeRooms = new Set();
+
+  for (const day of days) {
+    const row = ensureStatsRow(day);
+    totals.createdRooms += row.createdRooms;
+    totals.joinEvents += row.joinEvents;
+    totals.rejoinEvents += row.rejoinEvents;
+    totals.roundsStarted += row.roundsStarted;
+    row.uniquePlayerKeys.forEach((k) => uniquePlayers.add(k));
+    row.activeRoomCodes.forEach((c) => activeRooms.add(c));
+  }
+
+  totals.uniquePlayers = uniquePlayers.size;
+  totals.activeRooms = activeRooms.size;
+
+  return {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "local",
+    today,
+    totals,
+    daily: latestDays.map((day) => {
+      const row = ensureStatsRow(day);
+      return {
+        day,
+        createdRooms: row.createdRooms,
+        joinEvents: row.joinEvents,
+        rejoinEvents: row.rejoinEvents,
+        roundsStarted: row.roundsStarted,
+        activeRooms: row.activeRoomCodes.length,
+        uniquePlayers: row.uniquePlayerKeys.length,
+      };
+    }),
+  };
+}
+
+function verifyAdmin(req, res, next) {
+  if (!ADMIN_TOKEN) {
+    res.status(404).send("not found");
+    return;
+  }
+
+  const token = String(req.get("x-admin-token") || req.query.token || "").trim();
+  if (token !== ADMIN_TOKEN) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  next();
+}
+
+function buildStatsText(summary) {
+  const today = summary.daily.find((d) => d.day === summary.today);
+  const todayLine = today
+    ? `today ${today.day}: rooms=${today.createdRooms}, activeRooms=${today.activeRooms}, uniquePlayers=${today.uniquePlayers}, joins=${today.joinEvents}, rounds=${today.roundsStarted}`
+    : `today ${summary.today}: no data`;
+
+  return [
+    "[boggle usage stats]",
+    `timezone=${summary.timezone}`,
+    todayLine,
+    `total: rooms=${summary.totals.createdRooms}, activeRooms=${summary.totals.activeRooms}, uniquePlayers=${summary.totals.uniquePlayers}, joins=${summary.totals.joinEvents}, rounds=${summary.totals.roundsStarted}`,
+  ].join("\n");
+}
+
+async function pushStatsWebhook(summary) {
+  if (!STATS_WEBHOOK_URL) {
+    return { ok: false, reason: "missing STATS_WEBHOOK_URL" };
+  }
+  try {
+    const resp = await fetch(STATS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text: buildStatsText(summary),
+        summary,
+      }),
+    });
+    return { ok: resp.ok, status: resp.status };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
+
+app.get("/admin/stats", verifyAdmin, (req, res) => {
+  res.json(buildStatsSummary());
+});
+
+app.post("/admin/stats/push", verifyAdmin, async (req, res) => {
+  const summary = buildStatsSummary();
+  const pushed = await pushStatsWebhook(summary);
+  res.json({ pushed, summary });
+});
 
 function loadDictionary() {
   const sources = [loadMostCommonSource(HIGH_FREQUENCY_LIMIT), loadWordListSource()];
@@ -398,6 +610,7 @@ io.on("connection", (socket) => {
     };
 
     rooms.set(code, room);
+    trackUsage("create_room", socket, code);
     socket.data.roomCode = code;
     socket.data.playerId = player.id;
     socket.join(code);
@@ -425,6 +638,7 @@ io.on("connection", (socket) => {
 
     const player = makePlayer(name, socket);
     room.players.set(player.id, player);
+    trackUsage("join_room", socket, code);
     socket.data.roomCode = code;
     socket.data.playerId = player.id;
     socket.join(code);
@@ -464,6 +678,7 @@ io.on("connection", (socket) => {
 
     socket.data.roomCode = code;
     socket.data.playerId = player.id;
+    trackUsage("rejoin_room", socket, code);
     socket.join(code);
     socket.emit("joined", {
       roomCode: code,
@@ -487,6 +702,7 @@ io.on("connection", (socket) => {
       return;
     }
     if (room.status === "ACTIVE_ROUND") return;
+    trackUsage("start_round", socket, room.code);
     startRound(room);
   });
 
